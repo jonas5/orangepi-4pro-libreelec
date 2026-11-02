@@ -1,0 +1,98 @@
+name: Build & Release LibreELEC Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag'
+        required: false
+        default: ''
+      publish_release:
+        description: 'Publish GitHub Release'
+        required: true
+        default: true
+        type: boolean
+  push:
+    branches:
+      - main
+    paths:
+      - 'patch/**'
+      - 'config/**'
+      - 'dts/**'
+      - '.github/workflows/build-kernel.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-kernel:
+    name: Cross-compile LibreELEC 6.18 Kernel & DEBs
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git make gcc g++ gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            bison flex bc libssl-dev libncurses-dev libelf-dev \
+            rsync cpio kmod xz-utils curl wget zstd pigz python3 \
+            device-tree-compiler lzop libyaml-dev pkg-config
+
+      - name: Clone mainline 6.18 kernel
+        run: |
+          git clone --depth 1 --branch linux-6.18.y https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-6.18
+
+      - name: Apply patches
+        run: |
+          cd linux-6.18
+          git apply ../patch/0001-allwinner-a733-orangepi-4-pro-6.18-mainline.patch
+          git apply ../patch/0002-libreelec-kodi-cedrus-v4l2.patch
+          git apply ../patch/0300-packaging-armbian-builddeb.patch
+
+      - name: Configure LibreELEC Media Kernel
+        run: |
+          cd linux-6.18
+          cp ../config/orangepi_4pro_libreelec_defconfig .config
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
+
+      - name: Compile Kernel, DTBs, and Modules
+        run: |
+          cd linux-6.18
+          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image dtbs modules
+
+      - name: Package Kernel DEBs
+        run: |
+          cd linux-6.18
+          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- bindeb-pkg || true
+          mkdir -p ../kernel_debs
+          find .. -maxdepth 1 -name "*.deb" -exec mv -v {} ../kernel_debs/ \;
+          ls -lh ../kernel_debs/
+
+      - name: Collect Artifacts
+        run: |
+          mkdir -p release_kernel
+          cp -v linux-6.18/arch/arm64/boot/Image release_kernel/
+          cp -v linux-6.18/arch/arm64/boot/dts/allwinner/sun60i-a733-orangepi-4-pro.dtb release_kernel/
+          if [ -d kernel_debs ] && [ -n "$(ls -A kernel_debs 2>/dev/null)" ]; then
+            cp -v kernel_debs/*.deb release_kernel/
+          fi
+          (cd release_kernel && sha256sum * > SHA256SUMS)
+          ls -lh release_kernel/
+
+      - name: Upload Kernel Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: libreelec-kernel-6.18-orangepi4pro
+          path: release_kernel/*
+
+      - name: Publish Release
+        if: github.event.inputs.publish_release != 'false' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: LibreELEC Kernel 6.18 (Orange Pi 4 Pro)
+          files: release_kernel/*

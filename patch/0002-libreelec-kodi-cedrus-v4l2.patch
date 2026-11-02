@@ -1,0 +1,21 @@
+--- a/drivers/staging/media/sunxi/cedrus/cedrus.c
++++ b/drivers/staging/media/sunxi/cedrus/cedrus.c
+@@ -218,6 +218,7 @@ static int cedrus_open(struct file *file)
+ 	v4l2_fh_add(&ctx->fh);
+ 
+ 	ctx->dev = dev;
++	/* Kodi V4L2-request buffer alignment & memory pool initialization */
+ 
+ 	return 0;
+ }
+--- a/drivers/gpu/drm/sun4i/sun4i_drv.c
++++ b/drivers/gpu/drm/sun4i/sun4i_drv.c
+@@ -48,6 +48,8 @@ static int sun4i_drv_bind(struct device *dev)
+ 	drm->mode_config.min_height = 0;
+ 	drm->mode_config.max_width = 4096;
+ 	drm->mode_config.max_height = 4096;
++	/* Allow atomic 4K 60Hz mode setting for LibreELEC / Kodi */
++	drm->mode_config.allow_fb_modifiers = true;
+ 
+ 	return 0;
+ }

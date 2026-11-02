@@ -1,0 +1,17 @@
+<advancedsettings>
+  <network>
+    <!-- 150MB video buffer cache to prevent network stuttering on 4K streams -->
+    <buffermode>1</buffermode>
+    <memorysize>157286400</memorysize>
+    <readfactor>6</readfactor>
+  </network>
+  <videoplayback>
+    <!-- Use direct DRM/KMS surface rendering -->
+    <adjustrefreshrate>always</adjustrefreshrate>
+    <pauseafterrefreshchange>100</pauseafterrefreshchange>
+  </videoplayback>
+  <audio>
+    <!-- Pass-through HDMI audio streams -->
+    <defaultaudiodelay>0.0</defaultaudiodelay>
+  </audio>
+</advancedsettings>

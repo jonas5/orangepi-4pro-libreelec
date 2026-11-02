@@ -1,0 +1,18 @@
+[Unit]
+Description=Kodi Media Center Appliance Autostart
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+PAMName=login
+Environment=KODI_AE_SINK=ALSA
+ExecStart=/usr/bin/kodi-standalone --windowing=gbm
+Restart=on-failure
+RestartSec=3s
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

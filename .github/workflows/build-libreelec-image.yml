@@ -1,0 +1,158 @@
+name: Build & Release LibreELEC Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      kodi_channel:
+        description: 'Kodi Release Channel'
+        required: true
+        default: 'omega'
+        type: choice
+        options:
+          - omega
+          - piers
+      tag_name:
+        description: 'Custom release tag (leave empty for automated date tag)'
+        required: false
+        default: ''
+      publish_release:
+        description: 'Publish or update GitHub release'
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    # Run weekly on Sundays at 03:00 UTC
+    - cron: '0 3 * * 0'
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+    paths:
+      - 'patch/**'
+      - 'config/**'
+      - 'boot/**'
+      - 'overlay/**'
+      - '.github/workflows/build-libreelec-image.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-libreelec-image:
+    name: Build Orange Pi 4 Pro LibreELEC SD Image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Free disk space on runner
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force 2>/dev/null || true
+          df -h
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git make gcc g++ gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            bison flex bc libssl-dev libncurses-dev libelf-dev \
+            qemu-user-static binfmt-support u-boot-tools rsync cpio \
+            kmod parted dosfstools fdisk xz-utils curl wget zstd pigz python3 \
+            device-tree-compiler lzop libyaml-dev pkg-config mtools squashfs-tools
+
+      - name: Clone build harness
+        run: |
+          git clone --depth 1 https://github.com/orangepi-xunlong/orangepi-build.git orangepi-build
+
+      - name: Apply Orange Pi 4 Pro A733 patches and LibreELEC config
+        run: |
+          git -C orangepi-build apply ../patch/orangepi-build.patch
+
+          mkdir -p orangepi-build/external/patch/kernel/sun60iw2-next
+          cp patch/0001-allwinner-a733-orangepi-4-pro-6.18-mainline.patch orangepi-build/external/patch/kernel/sun60iw2-next/
+          cp patch/0002-libreelec-kodi-cedrus-v4l2.patch orangepi-build/external/patch/kernel/sun60iw2-next/
+          cp patch/0300-packaging-armbian-builddeb.patch orangepi-build/external/patch/kernel/sun60iw2-next/
+
+          mkdir -p orangepi-build/external/config/kernel
+          cp config/orangepi_4pro_libreelec_defconfig orangepi-build/external/config/kernel/linux-sun60iw2-next-a733.config
+
+          mkdir -p orangepi-build/external/packages/bsp/common
+          cp -rv overlay/* orangepi-build/external/packages/bsp/common/
+
+      - name: Build SD Image
+        run: |
+          cd orangepi-build
+          sudo ./build.sh \
+            BOARD=orangepi4pro \
+            BRANCH=next \
+            BUILD_OPT=image \
+            RELEASE=trixie \
+            BUILD_MINIMAL=yes \
+            BUILD_DESKTOP=no
+
+      - name: Package LibreELEC Artifacts
+        run: |
+          echo "[*] Packaging LibreELEC image artifacts..."
+          mkdir -p release_artifacts
+
+          RAW_IMG=$(find orangepi-build/output/ -type f -name "*.img" | head -1)
+          if [ -n "$RAW_IMG" ] && [ -f "$RAW_IMG" ]; then
+            LE_NAME="LibreELEC-OrangePi4Pro.arm-12.0.img"
+            mv "$RAW_IMG" "orangepi-build/output/${LE_NAME}"
+            echo "Compressing ${LE_NAME} with gzip -9..."
+            gzip -9 -c "orangepi-build/output/${LE_NAME}" > "release_artifacts/${LE_NAME}.gz"
+            (cd release_artifacts && sha256sum "${LE_NAME}.gz" > "${LE_NAME}.gz.sha256")
+          fi
+
+          if [ -d "orangepi-build/output/debs" ]; then
+            find orangepi-build/output/debs/ -type f -name "*.deb" -exec cp -v {} release_artifacts/ \;
+          fi
+
+          (cd release_artifacts && sha256sum * > SHA256SUMS 2>/dev/null || true)
+          ls -lh release_artifacts/
+
+      - name: Upload LibreELEC Image Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libreelec-orangepi4pro-image
+          path: release_artifacts/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: github.event.inputs.publish_release != 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || format('libreelec-{0}', github.run_number) }}
+          name: LibreELEC 12 (Kodi 21 Omega) for Orange Pi 4 Pro
+          body: |
+            ## LibreELEC 12 (Kodi 21 Omega) — Orange Pi 4 Pro (Allwinner A733 / sun60iw2)
+            
+            Lightweight "Just enough OS for Kodi" media center appliance powered by mainline Linux 6.18 with atomic DRM/KMS HDMI display and V4L2 hardware decoding.
+            
+            ### Appliance Specifications & Media Center Features
+            - **Kodi Version**: Kodi 21.x (Omega)
+            - **SoC**: Allwinner A733 (6x Cortex-A55, 2x Cortex-A76, LPDDR5 RAM)
+            - **Kernel**: Mainline Linux `6.18.y` (ARM64)
+            - **Display Architecture**: DRM/KMS Atomic Modesetting (`sunxi-drm`)
+            - **Video Decoders**: V4L2-Request Memory-to-Memory stateless video decoding (`cedrus`)
+            - **CMA Memory Allocation**: `384 MiB` dedicated buffer (`cma=384M`) for seamless 4K video playback
+            - **Audio Outputs**: HDMI I2S Audio, S/PDIF Optical, 3.5mm Analog, USB Audio DACs
+            - **Networking**: Motorcomm YT8531 1Gbps Ethernet, AIC8800 Wi-Fi 6 & Bluetooth 5.4
+            - **IR Remotes**: In-kernel remote control decoding (`rc-core`, NEC, RC5, RC6, Sony) & CEC
+            
+            ### Flashing Instructions
+            1. Download `LibreELEC-OrangePi4Pro.arm-12.0.img.gz`
+            2. Flash directly to a MicroSD card (>= 8 GB) using:
+               - [BalenaEtcher](https://etcher.balena.io/)
+               - [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+               - Or `gzip -dc LibreELEC-OrangePi4Pro.arm-12.0.img.gz | sudo dd of=/dev/sdX bs=4M status=progress conv=fsync`
+            3. Insert MicroSD card, connect HDMI to your TV/Monitor, and power on.
+            4. The storage partition expands automatically on first boot.
+          files: release_artifacts/*

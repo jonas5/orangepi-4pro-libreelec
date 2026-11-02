@@ -1,8 +1,8 @@
-verbosity=8
-bootlogo=false
-console=serial
+verbosity=1
+bootlogo=true
+console=display
 overlay_prefix=sun60i-a733
 fdtfile=allwinner/sun60i-a733-orangepi-4-pro.dtb
 rootdev=/dev/mmcblk0p1
 rootfstype=ext4
-extraargs=console=tty1 console=ttyS0,115200 earlycon=uart8250,mmio32,0x02500000 loglevel=8 apparmor=0 selinux=0 panic=5 cma=256M modprobe.blacklist=powervr,aic8800_fdrv,aic8800_bsp,aic_load_fw,aic8800_btlpm
+extraargs=console=tty1 console=ttyS0,115200 quiet splash loglevel=3 panic=5 cma=384M modprobe.blacklist=powervr,aic8800_fdrv,aic8800_bsp,aic_load_fw,aic8800_btlpm
