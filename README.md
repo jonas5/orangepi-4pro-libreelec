@@ -31,6 +31,27 @@ This repository provides the official LibreELEC 12 (Kodi 21 Omega) media center 
 
 ---
 
+---
+
+## Hardware Video Decoding (VPU): Cedrus V4L2 vs. OpenMAX Architecture
+
+A common question is whether LibreELEC utilizes the Allwinner Cedar VPU engine, and how it differs from OpenMAX or legacy media players like VLC and MPlayer:
+
+### 1. Stateless V4L2 Request API (`sunxi-cedrus`) vs. OpenMAX
+- **OpenMAX (OMX)** is a legacy userspace API designed for vendor-proprietary character devices (`/dev/cedar_dev`). Kodi and LibreELEC deprecated and completely removed OpenMAX support across all ARM platforms.
+- Instead, LibreELEC drives the hardware VPU directly via the **mainline Linux Stateless V4L2 Request API (`sunxi-cedrus.ko`)**.
+- Kodi's video engine passes bitstream slices directly to `/dev/media0` / `/dev/video0`. Decoded frames reside in contiguous DMA buffers (`dmabuf`) allocated from the dedicated **384 MiB CMA pool** (`cma=384M`), which are scanned out directly to the HDMI display plane (`sunxi-drm`) with **zero-copy and ~0% CPU load**.
+
+### 2. Media Player Hardware Acceleration Matrix
+
+| Media Player / Environment | OpenMAX (`/dev/cedar_dev`) | Mainline Cedrus (`/dev/video*` & `/dev/media*`) | Hardware Acceleration Status on A733 |
+| :--- | :---: | :---: | :--- |
+| **LibreELEC (Kodi 21 Omega)** | ❌ Deprecated | ✅ **Native Zero-Copy** | **Full hardware decode** (MPEG2, H.264, H.265/HEVC 8/10-bit up to 4K @ 60Hz directly on DRM planes). |
+| **`gst-play-1.0` / GStreamer** | ✅ **Native** | ✅ Supported | **Full hardware decode** under Wayland (`waylandsink`) and X11 (`xvimagesink`) using `omxh264dec`. |
+| **`mpv`** | ❌ No | ✅ **Supported** | Modern replacement for MPlayer; decodes via `--hwdec=v4l2m2m-copy` / `--vo=drm`. |
+| **VLC** | ❌ Dropped | ⏳ Partial (`--avcodec-hw=v4l2m2m`) | OpenMAX plugin was deprecated and removed from modern distro builds; defaults to CPU decode. |
+| **MPlayer** | ❌ No | ❌ No | **Not supported**; development predates V4L2 Request API, falls back entirely to software CPU decoding. |
+
 ## 2. Appliance Architecture: Read-Only SquashFS
 
 LibreELEC runs as a dedicated "Just enough OS for Kodi" appliance utilizing a crash-proof, read-only partition layout:
