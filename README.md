@@ -115,7 +115,7 @@ sudo orangepi-config --activate all --payment-id YOUR-LICENSE-KEY --non-interact
 │   ├── etc/kodi/advancedsettings.xml # Optimized 4K video buffering & display settings
 │   ├── etc/motd                      # LibreELEC ASCII banner
 │   ├── etc/systemd/system/           # Kodi appliance autostart service
-│   └── usr/local/bin/                # orangepi-config helper
+│   └── usr/local/bin/                # a733-config / orangepi-config helper
 ├── patch/
 │   ├── 0001-allwinner-a733-orangepi-4-pro-6.18-mainline.patch # SoC mainline patch
 │   ├── 0002-libreelec-kodi-cedrus-v4l2.patch                  # Kodi V4L2/DRM atomic patch

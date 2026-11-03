@@ -97,9 +97,11 @@ fi
 
 # Copy system overlays
 mkdir -p "${ROOT_MNT}/usr/local/bin"
-if [ -f "${REPO_ROOT}/overlay/usr/local/bin/orangepi-config" ]; then
-    cp "${REPO_ROOT}/overlay/usr/local/bin/orangepi-config" "${ROOT_MNT}/usr/local/bin/orangepi-config"
-    chmod 0755 "${ROOT_MNT}/usr/local/bin/orangepi-config"
+if [ -f "${REPO_ROOT}/overlay/usr/local/bin/a733-config" ]; then
+    cp "${REPO_ROOT}/overlay/usr/local/bin/a733-config" "${ROOT_MNT}/usr/local/bin/a733-config"
+    chmod 0755 "${ROOT_MNT}/usr/local/bin/a733-config"
+    ln -sf a733-config "${ROOT_MNT}/usr/local/bin/orangepi-config"
+    
 fi
 
 echo "[*] Step 4: Finalizing image..."
