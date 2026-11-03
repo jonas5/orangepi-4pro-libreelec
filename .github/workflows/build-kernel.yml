@@ -34,7 +34,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check for upstream kernel updates
+        id: check-kernel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+            echo "Manual or push event detected (${{ github.event_name }}). Proceeding with build."
+            exit 0
+          fi
+
+          echo "Checking upstream kernel commit on branch linux-6.18.y..."
+          UPSTREAM_KERNEL=$(git ls-remote https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git refs/heads/linux-6.18.y | awk '{print $1}')
+          LOCAL_REPO_SHA="${GITHUB_SHA}"
+
+          echo "Upstream Linux 6.18 HEAD: ${UPSTREAM_KERNEL}"
+          echo "Current Repository HEAD:   ${LOCAL_REPO_SHA}"
+
+          TAG="${{ github.event.inputs.tag_name || 'daily' }}"
+          RELEASE_BODY=$(gh release view "$TAG" --repo "$GH_REPO" --json body -q .body 2>/dev/null || true)
+
+          BUILD_STAMP="BUILD_STAMP: KERNEL=${UPSTREAM_KERNEL} REPO=${LOCAL_REPO_SHA}"
+          if echo "$RELEASE_BODY" | grep -Fq "$BUILD_STAMP"; then
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+            echo "### ⏭️ Clean Exit: No New Kernel Changes" >> $GITHUB_STEP_SUMMARY
+            echo "Upstream kernel (\`${UPSTREAM_KERNEL:0:12}\`) and repository (\`${LOCAL_REPO_SHA:0:12}\`) have not changed since last build." >> $GITHUB_STEP_SUMMARY
+            echo "Cleanly skipping build to save CI compute minutes." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+            echo "New kernel commit or repository changes detected. Proceeding with build."
+          fi
+
       - name: Install build dependencies
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -44,10 +78,12 @@ jobs:
             device-tree-compiler lzop libyaml-dev pkg-config
 
       - name: Clone mainline 6.18 kernel
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           git clone --depth 1 --branch linux-6.18.y https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git linux-6.18
 
       - name: Apply patches
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           cd linux-6.18
           git apply ../patch/0001-allwinner-a733-orangepi-4-pro-6.18-mainline.patch
@@ -55,17 +91,20 @@ jobs:
           git apply ../patch/0300-packaging-armbian-builddeb.patch
 
       - name: Configure LibreELEC Media Kernel
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           cd linux-6.18
           cp ../config/orangepi_4pro_libreelec_defconfig .config
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- olddefconfig
 
       - name: Compile Kernel, DTBs, and Modules
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           cd linux-6.18
           make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image dtbs modules
 
       - name: Package Kernel DEBs
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           cd linux-6.18
           make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- bindeb-pkg || true
@@ -74,6 +113,7 @@ jobs:
           ls -lh ../kernel_debs/
 
       - name: Collect Artifacts
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           mkdir -p release_kernel
           cp -v linux-6.18/arch/arm64/boot/Image release_kernel/
@@ -85,13 +125,14 @@ jobs:
           ls -lh release_kernel/
 
       - name: Upload Kernel Artifacts
+        if: steps.check-kernel.outputs.should_skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: libreelec-kernel-6.18-orangepi4pro
           path: release_kernel/*
 
       - name: Publish Release
-        if: github.event.inputs.publish_release != 'false' && startsWith(github.ref, 'refs/tags/')
+        if: steps.check-kernel.outputs.should_skip != 'true' && github.event.inputs.publish_release != 'false' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: LibreELEC Kernel 6.18 (Orange Pi 4 Pro)

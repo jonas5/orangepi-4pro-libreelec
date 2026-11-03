@@ -48,7 +48,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check for upstream kernel updates
+        id: check-kernel
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+            echo "Manual or push event detected (${{ github.event_name }}). Proceeding with build."
+            exit 0
+          fi
+
+          echo "Checking upstream kernel commit on branch linux-6.18.y..."
+          UPSTREAM_KERNEL=$(git ls-remote https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git refs/heads/linux-6.18.y | awk '{print $1}')
+          LOCAL_REPO_SHA="${GITHUB_SHA}"
+
+          echo "Upstream Linux 6.18 HEAD: ${UPSTREAM_KERNEL}"
+          echo "Current Repository HEAD:   ${LOCAL_REPO_SHA}"
+
+          TAG="${{ github.event.inputs.tag_name || 'daily' }}"
+          RELEASE_BODY=$(gh release view "$TAG" --repo "$GH_REPO" --json body -q .body 2>/dev/null || true)
+
+          BUILD_STAMP="BUILD_STAMP: KERNEL=${UPSTREAM_KERNEL} REPO=${LOCAL_REPO_SHA}"
+          if echo "$RELEASE_BODY" | grep -Fq "$BUILD_STAMP"; then
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+            echo "### ⏭️ Clean Exit: No New Kernel Changes" >> $GITHUB_STEP_SUMMARY
+            echo "Upstream kernel (\`${UPSTREAM_KERNEL:0:12}\`) and repository (\`${LOCAL_REPO_SHA:0:12}\`) have not changed since last build." >> $GITHUB_STEP_SUMMARY
+            echo "Cleanly skipping build to save CI compute minutes." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "should_skip=false" >> $GITHUB_OUTPUT
+            echo "New kernel commit or repository changes detected. Proceeding with build."
+          fi
+
       - name: Free disk space on runner
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
@@ -58,6 +92,7 @@ jobs:
           df -h
 
       - name: Install build dependencies
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -68,10 +103,12 @@ jobs:
             device-tree-compiler lzop libyaml-dev pkg-config mtools squashfs-tools
 
       - name: Clone build harness
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           git clone --depth 1 https://github.com/orangepi-xunlong/orangepi-build.git orangepi-build
 
       - name: Apply Orange Pi 4 Pro A733 patches and LibreELEC config
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           git -C orangepi-build apply ../patch/orangepi-build.patch
 
@@ -87,6 +124,7 @@ jobs:
           cp -rv overlay/* orangepi-build/external/packages/bsp/common/
 
       - name: Build SD Image
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           cd orangepi-build
           sudo ./build.sh \
@@ -98,6 +136,7 @@ jobs:
             BUILD_DESKTOP=no
 
       - name: Package LibreELEC Artifacts
+        if: steps.check-kernel.outputs.should_skip != 'true'
         run: |
           echo "[*] Packaging LibreELEC image artifacts..."
           mkdir -p release_artifacts
@@ -119,6 +158,7 @@ jobs:
           ls -lh release_artifacts/
 
       - name: Upload LibreELEC Image Artifact
+        if: steps.check-kernel.outputs.should_skip != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: libreelec-orangepi4pro-image
@@ -126,7 +166,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        if: github.event.inputs.publish_release != 'false'
+        if: steps.check-kernel.outputs.should_skip != 'true' && github.event.inputs.publish_release != 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag_name || format('libreelec-{0}', github.run_number) }}
