@@ -1,4 +1,4 @@
-# Orange Pi 4 Pro (Allwinner A733) — LibreELEC 12 (Kodi 21 Omega)
+# Allwinner A733 Linux Support — LibreELEC 12 (Kodi 21 Omega)
 
 [![Build & Release LibreELEC Image](https://github.com/jonas5/orangepi-4pro-libreelec/actions/workflows/build-libreelec-image.yml/badge.svg)](https://github.com/jonas5/orangepi-4pro-libreelec/actions/workflows/build-libreelec-image.yml)
 [![Kernel Branch](https://img.shields.io/badge/Kernel-Linux%206.18.y%20ARM64-blue.svg)](https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git)
